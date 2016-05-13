@@ -80,8 +80,8 @@ HcalPedestal HcalDbHardcode::makePedestal (HcalGenericDetId fId, bool fSmear, do
 
 HcalPedestalWidth HcalDbHardcode::makePedestalWidth (HcalGenericDetId fId) {
   float value = 0;
-  if      (fId.genericSubdet() == HcalGenericDetId::HcalGenBarrel) value = 5.0;
-  else if (fId.genericSubdet() == HcalGenericDetId::HcalGenEndcap) value = 5.0;
+  if      (fId.genericSubdet() == HcalGenericDetId::HcalGenBarrel) value = 1.5; // 5.0;
+  else if (fId.genericSubdet() == HcalGenericDetId::HcalGenEndcap) value = 1.5; // 5.0;
   else if (fId.genericSubdet() == HcalGenericDetId::HcalGenOuter)  value = 1.5;
   else if (fId.genericSubdet() == HcalGenericDetId::HcalGenForward)value = 2.0;
   // everything in fC
@@ -106,9 +106,9 @@ HcalPedestalWidth HcalDbHardcode::makePedestalWidth (HcalGenericDetId fId, doubl
                                  // operations
   if(eff_lumi < 0.) eff_lumi = 0.;
   if      (fId.genericSubdet() == HcalGenericDetId::HcalGenBarrel) 
-    value = 5.0 + 1.7 * sqrt(eff_lumi);
+    value = 1.5 /* 5.0 */ + 1.7 * sqrt(eff_lumi);
   else if (fId.genericSubdet() == HcalGenericDetId::HcalGenEndcap) 
-    value = 5.0 + 0.7 * sqrt(eff_lumi);
+    value = 1.5 /* 5.0 */ + 0.7 * sqrt(eff_lumi);
   else if (fId.genericSubdet() == HcalGenericDetId::HcalGenOuter)  value = 1.5;
   else if (fId.genericSubdet() == HcalGenericDetId::HcalGenForward)value = 2.0;
   // everything in fC

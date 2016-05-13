@@ -186,7 +186,7 @@ HcalDigitizer::HcalDigitizer(const edm::ParameterSet& ps) :
   //std::vector<int> hoSiPMCells(ps.getParameter<edm::ParameterSet>("ho").getParameter<std::vector<int> >("siPMCells"));
   // 0 means none, 1 means all, and 2 means use hardcoded
 
-  //  std::cout << std::endl << " hbSiPMCells = " << hbSiPMCells[0] << std::endl;
+  //std::cout << std::endl << " hbSiPMCells = " << hbSiPMCells[0] << std::endl;
 
   bool doHBHEHPD = hbSiPMCells.empty() || (hbSiPMCells[0] != 1);
   bool doHOHPD = (theHOSiPMCode != 1);
@@ -655,6 +655,9 @@ void  HcalDigitizer::updateGeometry(const edm::EventSetup & eventSetup) {
 
     //    std::cout << " HcalDigitizer::updateGeometry  theHBHEUpgradeDigitizer->setDetIds(theHBHEDetIds)"<< std::endl;   
   }
+
+  if(theHBHESiPMResponse) ((HcalSiPMHitResponse *)theHBHESiPMResponse)->setDetIds(theHBHEDetIds);
+  if(theHOSiPMResponse)   ((HcalSiPMHitResponse *)theHOSiPMResponse)->setDetIds(hoCells);
 
 }
 

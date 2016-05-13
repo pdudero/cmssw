@@ -19,14 +19,17 @@ HcalSiPMHitResponse::HcalSiPMHitResponse(const CaloVSimParameterMap * parameterM
 					 const CaloShapes * shapes) :
   CaloHitResponse(parameterMap, shapes), theSiPM(), theRecoveryTime(250.), 
   TIMEMULT(1), Y11RANGE(80.), Y11MAX(0.04), Y11TIMETORISE(16.65), 
-  theRndFlat(0) {
+  theRndFlat(0), theRndPoisson(0) {
   theSiPM = new HcalSiPM(2500);
+
+  theSiPM->setCrossTalk(0.081);
 }
 
 HcalSiPMHitResponse::~HcalSiPMHitResponse() {
   if (theSiPM)
     delete theSiPM;
   delete theRndFlat;
+  delete theRndPoisson;
 }
 
 void HcalSiPMHitResponse::initializeHits() {
@@ -34,6 +37,7 @@ void HcalSiPMHitResponse::initializeHits() {
 }
 
 void HcalSiPMHitResponse::finalizeHits() {
+  addPEnoise();
 
   photonTimeMap::iterator channelPhotons;
   for (channelPhotons = precisionTimedPhotons.begin();
@@ -71,7 +75,8 @@ void HcalSiPMHitResponse::add(const PCaloHit& hit) {
     if (!edm::isNotFinite(hit.time()) &&
 	((theHitFilter == 0) || (theHitFilter->accepts(hit)))) {
       HcalDetId id(hit.id());
-      const HcalSimParameters& pars = dynamic_cast<const HcalSimParameters&>(theParameterMap->simParameters(id));
+      const HcalSimParameters& pars =
+	dynamic_cast<const HcalSimParameters&>(theParameterMap->simParameters(id));
       double signal(analogSignalAmplitude(id, hit.energy(), pars));
       unsigned int photons(signal + 0.5);
       double time( hit.time() );
@@ -123,44 +128,95 @@ void HcalSiPMHitResponse::add(const PCaloHit& hit) {
     }
 }
 
-void HcalSiPMHitResponse::run(MixCollection<PCaloHit> & hits) {
-  typedef std::multiset <const PCaloHit *, PCaloHitCompareTimes> SortedHitSet;
+void HcalSiPMHitResponse::addPEnoise()
+{
+  double const dt(theTDCParams.deltaT()/TIMEMULT);
 
-  std::map< DetId, SortedHitSet > sortedhits;
-  for (MixCollection<PCaloHit>::MixItr hitItr = hits.begin();
-       hitItr != hits.end(); ++hitItr) {
-    if (!((hitItr.bunch() < theMinBunch) || (hitItr.bunch() > theMaxBunch)) &&
-        !(edm::isNotFinite(hitItr->time())) &&
-        ((theHitFilter == 0) || (theHitFilter->accepts(*hitItr)))) {
-      DetId id(hitItr->id());
-      if (sortedhits.find(id)==sortedhits.end())
-        sortedhits.insert(std::pair<DetId, SortedHitSet>(id, SortedHitSet()));
-      sortedhits[id].insert(&(*hitItr));
-    }
-  }
-  int pixelIntegral, oldIntegral;
-  HcalSiPMRecovery pixelHistory(theRecoveryTime);
-  for (std::map<DetId, SortedHitSet>::iterator i = sortedhits.begin(); 
-       i!=sortedhits.end(); ++i) {
-    pixelHistory.clearHistory();
-    for (SortedHitSet::iterator itr = i->second.begin(); 
-	 itr != i->second.end(); ++itr) {
-      const PCaloHit& hit = **itr;
-      pixelIntegral = pixelHistory.getIntegral(hit.time());
-      oldIntegral = pixelIntegral;
-      CaloSamples signal(makeSiPMSignal(i->first, hit, pixelIntegral));
-      pixelHistory.addToHistory(hit.time(), pixelIntegral-oldIntegral);
-      add(signal);
-    }
-  }
-}
+  // Add SiPM dark current noise to all cells
+  for(std::vector<DetId>::const_iterator idItr = theDetIds->begin();
+      idItr != theDetIds->end(); ++idItr) {
+    HcalDetId id(*idItr);
+    const HcalSimParameters& pars =
+      dynamic_cast<const HcalSimParameters&>(theParameterMap->simParameters(id));
+
+    // uA * ns / (fC/pe) = pe!
+    double dc_pe_avg =
+      pars.sipmDarkCurrentuA() * dt / 
+      pars.photoelectronsToAnalog(id);
+
+    int nPreciseBins = theTDCParams.nbins() * TIMEMULT * pars.readoutFrameSize();
+
+    unsigned int sumnoisePE(0);
+    double  elapsedTime(0.);
+    for (int tprecise(0); tprecise < nPreciseBins; ++tprecise) {
+
+      int noisepe = theRndPoisson->fire(dc_pe_avg); // add dark current noise
+
+      if (noisepe > 0) {
+	if (precisionTimedPhotons.find(id)==precisionTimedPhotons.end()) {
+	  photonTimeHist photons(nPreciseBins, 0);
+	  photons[tprecise] = noisepe;
+	  precisionTimedPhotons.insert
+	    (std::pair<DetId, photonTimeHist >(id, photons ) );
+	} else {
+	  precisionTimedPhotons[id][tprecise] += noisepe;
+	}
+
+	sumnoisePE += noisepe;
+      }
+      elapsedTime += dt;
+
+    } // precise time loop
+
+    //std::cout << id;
+    //std::cout << " total noise (PEs): " << sumnoisePE << std::endl;
+
+    LogDebug("HcalSiPMHitResponse") << id;
+    LogDebug("HcalSiPMHitResponse") << " total noise (PEs): " << sumnoisePE;
+
+  } // detId loop
+}                                               // HcalSiPMHitResponse::addPEnoise()
+
+// Deprecated
+// void HcalSiPMHitResponse::run(MixCollection<PCaloHit> & hits) {
+//   typedef std::multiset <const PCaloHit *, PCaloHitCompareTimes> SortedHitSet;
+
+//   std::map< DetId, SortedHitSet > sortedhits;
+//   for (MixCollection<PCaloHit>::MixItr hitItr = hits.begin();
+//        hitItr != hits.end(); ++hitItr) {
+//     if (!((hitItr.bunch() < theMinBunch) || (hitItr.bunch() > theMaxBunch)) &&
+//         !(edm::isNotFinite(hitItr->time())) &&
+//         ((theHitFilter == 0) || (theHitFilter->accepts(*hitItr)))) {
+//       DetId id(hitItr->id());
+//       if (sortedhits.find(id)==sortedhits.end())
+//         sortedhits.insert(std::pair<DetId, SortedHitSet>(id, SortedHitSet()));
+//       sortedhits[id].insert(&(*hitItr));
+//     }
+//   }
+//   int pixelIntegral, oldIntegral;
+//   HcalSiPMRecovery pixelHistory(theRecoveryTime);
+//   for (std::map<DetId, SortedHitSet>::iterator i = sortedhits.begin(); 
+//        i!=sortedhits.end(); ++i) {
+//     pixelHistory.clearHistory();
+//     for (SortedHitSet::iterator itr = i->second.begin(); 
+// 	 itr != i->second.end(); ++itr) {
+//       const PCaloHit& hit = **itr;
+//       pixelIntegral = pixelHistory.getIntegral(hit.time());
+//       oldIntegral = pixelIntegral;
+//       CaloSamples signal(makeSiPMSignal(i->first, hit, pixelIntegral));
+//       pixelHistory.addToHistory(hit.time(), pixelIntegral-oldIntegral);
+//       add(signal);
+//     }
+//   }
+// }
 
 
 void HcalSiPMHitResponse::setRandomEngine(CLHEP::HepRandomEngine & engine)
 {
   theSiPM->initRandomEngine(engine);
   CaloHitResponse::setRandomEngine(engine);
-  theRndFlat = new CLHEP::RandFlat(engine);
+  theRndFlat    = new CLHEP::RandFlat(engine);
+  theRndPoisson = new CLHEP::RandPoisson(engine);
 }
 
 CaloSamples HcalSiPMHitResponse::makeBlankSignal(const DetId& detId) const {
@@ -173,49 +229,51 @@ CaloSamples HcalSiPMHitResponse::makeBlankSignal(const DetId& detId) const {
   return result;
 }
 
-CaloSamples HcalSiPMHitResponse::makeSiPMSignal(const DetId & id,
-                                                const PCaloHit & inHit, 
-						int & integral ) const {
+// Deprecated
+// CaloSamples HcalSiPMHitResponse::makeSiPMSignal(const DetId & id,
+//                                                 const PCaloHit & inHit, 
+// 						int & integral ) const {
   
-  PCaloHit hit = inHit;
-  if (theHitCorrection != 0) {
-    hit.setTime(hit.time() + theHitCorrection->delay(hit));
-  }
+//   PCaloHit hit = inHit;
+//   if (theHitCorrection != 0) {
+//     hit.setTime(hit.time() + theHitCorrection->delay(hit));
+//   }
 
-  const HcalSimParameters& pars = dynamic_cast<const HcalSimParameters&>(theParameterMap->simParameters(id));
-  theSiPM->setNCells(pars.pixels());
+//   const HcalSimParameters& pars = dynamic_cast<const HcalSimParameters&>(theParameterMap->simParameters(id));
+//   theSiPM->setNCells(pars.pixels());
 
-  double signal = analogSignalAmplitude(id, hit.energy(), pars);
-  int photons = static_cast<int>(signal + 0.5);
-  int pixels = theSiPM->hitCells(photons, integral);
-  integral += pixels;
-  signal = double(pixels);
+//   double signal = analogSignalAmplitude(id, hit.energy(), pars);
+//   int photons = static_cast<int>(signal + 0.5);
+//   int pixels = theSiPM->hitCells(photons, integral);
+//   integral += pixels;
+//   signal = double(pixels);
 
-  CaloSamples result(makeBlankSignal(id));
+//   CaloSamples result(makeBlankSignal(id));
 
-  if(pixels > 0)
-  {
-    const CaloVShape * shape = theShapes->shape(id);
-    double jitter = hit.time() - timeOfFlight(id);
+//   if(pixels > 0)
+//   {
+//     const CaloVShape * shape = theShapes->shape(id);
+//     double jitter = hit.time() - timeOfFlight(id);
 
-    const double tzero = pars.timePhase() - jitter -
-      BUNCHSPACE*(pars.binOfMaximum() - thePhaseShift_);
-    double binTime = tzero;
+//     const double tzero = pars.timePhase() - jitter -
+//       BUNCHSPACE*(pars.binOfMaximum() - thePhaseShift_);
+//     double binTime = tzero;
 
-    for (int bin = 0; bin < result.size(); bin++) {
-      result[bin] += (*shape)(binTime)*signal;
-      binTime += BUNCHSPACE;
-    }
-  }
+//     for (int bin = 0; bin < result.size(); bin++) {
+//       result[bin] += (*shape)(binTime)*signal;
+//       binTime += BUNCHSPACE;
+//     }
+//   }
 
-  return result;
-}
+//   return result;
+// }
 
 CaloSamples HcalSiPMHitResponse::makeSiPMSignal(DetId const& id, 
 						photonTimeHist const& photons) const {
   const HcalSimParameters& pars = dynamic_cast<const HcalSimParameters&>(theParameterMap->simParameters(id));  
   theSiPM->setNCells(pars.pixels());
   theSiPM->setTau(5.);
+
   //use to make signal
   CaloSamples signal( makeBlankSignal(id) );
   double const dt(theTDCParams.deltaT()/TIMEMULT);
@@ -232,7 +290,7 @@ CaloSamples HcalSiPMHitResponse::makeSiPMSignal(DetId const& id,
   std::list< std::pair<double, double> > pulses;
   std::list< std::pair<double, double> >::iterator pulse;
   double timeDiff, pulseBit;
-  // std::cout << HcalDetId(id) << '\n';
+  //std::cout << "makeSiPMSignal for " << HcalDetId(id) << '\n';
   for (unsigned int pt(0); pt < photons.size(); ++pt) {
     pe = photons[pt];
     sumPE += pe;
@@ -242,12 +300,13 @@ CaloSamples HcalSiPMHitResponse::makeSiPMSignal(DetId const& id,
       hitPixels = theSiPM->hitCells(pe, 0., elapsedTime);
       sumHits += hitPixels;
       // std::cout << " elapsedTime: " << elapsedTime
-      // 		<< " sampleBin: " << sampleBin
-      // 		<< " preciseBin: " << preciseBin
-      // 		<< " pe: " << pe 
-      // 		<< " hitPixels: " << hitPixels 
-      // 		<< '\n';
+      //  		<< " sampleBin: " << sampleBin
+      //  		<< " preciseBin: " << preciseBin
+      //  		<< " pe: " << pe 
+      //  		<< " hitPixels: " << hitPixels 
+      //  		<< '\n';
       if (pars.doSiPMSmearing()) {
+	//std::cout << "Doing smearing" <<std::endl;
 	pulses.push_back( std::pair<double, double>(elapsedTime, hitPixels) );
       } else {
 	signal[sampleBin] += hitPixels;

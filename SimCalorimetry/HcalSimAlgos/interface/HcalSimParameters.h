@@ -10,11 +10,14 @@ typedef std::vector<std::pair<double,double> > HcalTimeSmearSettings;
 class HcalSimParameters : public CaloSimParameters
 {
 public:
-  HcalSimParameters(double simHitToPhotoelectrons, const std::vector<double> & photoelectronsToAnalog,
-                 double samplingFactor, double timePhase,
-                 int readoutFrameSize, int binOfMaximum,
-                 bool doPhotostatistics, bool syncPhase,
-                 int firstRing, const std::vector<double> & samplingFactors);
+  HcalSimParameters(double simHitToPhotoelectrons,
+                    const std::vector<double> & photoelectronsToAnalog,
+                    double samplingFactor, double timePhase,
+                    int readoutFrameSize, int binOfMaximum,
+                    bool doPhotostatistics, bool syncPhase,
+                    int firstRing, const std::vector<double> & samplingFactors,
+		    double sipmDarkCurrentuA
+                    );
   HcalSimParameters(const edm::ParameterSet & p);
 
   virtual ~HcalSimParameters() {}
@@ -37,6 +40,8 @@ public:
   int pixels() const {return thePixels;}
   bool doSiPMSmearing() const { return theSiPMSmearing; }
 
+  double sipmDarkCurrentuA() const { return theSiPMdarkCurrentuA; }
+
   friend class HcalSimParameterMap;
 
 private:
@@ -49,6 +54,7 @@ private:
   bool theSiPMSmearing;
   bool doTimeSmear_;
   HcalTimeSmearSettings theSmearSettings;
+  double theSiPMdarkCurrentuA;
 };
 
 #endif

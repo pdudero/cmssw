@@ -8,11 +8,14 @@
 #include "CLHEP/Random/RandGaussQ.h"
 using namespace std;
 
-HcalSimParameters::HcalSimParameters(double simHitToPhotoelectrons, const std::vector<double> & photoelectronsToAnalog,
-                 double samplingFactor, double timePhase,
-                 int readoutFrameSize, int binOfMaximum,
-                 bool doPhotostatistics, bool syncPhase,
-                 int firstRing, const std::vector<double> & samplingFactors)
+HcalSimParameters::HcalSimParameters(double simHitToPhotoelectrons,
+				     const std::vector<double> & photoelectronsToAnalog,
+				     double samplingFactor, double timePhase,
+				     int readoutFrameSize, int binOfMaximum,
+				     bool doPhotostatistics, bool syncPhase,
+				     int firstRing, const std::vector<double> & samplingFactors,
+				     double sipmDarkCurrentuA
+				     )
 : CaloSimParameters(simHitToPhotoelectrons,  photoelectronsToAnalog[0], samplingFactor, timePhase,
                     readoutFrameSize, binOfMaximum, doPhotostatistics, syncPhase),
   theDbService(0),
@@ -21,7 +24,8 @@ HcalSimParameters::HcalSimParameters(double simHitToPhotoelectrons, const std::v
   thePE2fCByRing(photoelectronsToAnalog),
   thePixels(0),
   theSiPMSmearing(false),
-  doTimeSmear_(true)
+  doTimeSmear_(true),
+  theSiPMdarkCurrentuA(sipmDarkCurrentuA)
 {
   defaultTimeSmearing();
 }
@@ -42,6 +46,10 @@ HcalSimParameters::HcalSimParameters(const edm::ParameterSet & p)
   if (p.exists("doSiPMSmearing"))
     theSiPMSmearing = p.getParameter<bool>("doSiPMSmearing");
   defaultTimeSmearing();
+
+  if (p.exists("sipmDarkCurrentuA"))
+    theSiPMdarkCurrentuA = p.getParameter<double>("sipmDarkCurrentuA");
+
 }
 
 double HcalSimParameters::simHitToPhotoelectrons(const DetId & detId) const 
